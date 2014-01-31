@@ -20,6 +20,7 @@
 
 from .. import device 
 from gpib import GpibError
+import numpy
 import sys
 
 class TektronixTDS(device.Instrument):
@@ -105,7 +106,7 @@ class TektronixTDS(device.Instrument):
         Syntax: DATa:STARt?
         """
         self.write('DATa:STARt?')
-        return self.read().strip()
+        return int(self.read())
 
     def set_data_stop(self, stop):
         """Sets the last data point that will be transferred when using the
@@ -126,7 +127,63 @@ class TektronixTDS(device.Instrument):
         Syntax: DATa:STOP?
         """
         self.write('DATa:STOP?')
-        return self.read().strip()
+        return int(self.read())
+
+    def set_data_width(self, width):
+        """Sets the number of bytes per data point in the waveform transferred using the
+        CURVe command.
+
+        Syntax: DATa:WIDth <NR1>
+        """
+        if width in (1, 2):
+            self.write('DATa:WIDth {width}'.format(width=width))
+
+    def get_data_width(self):
+        """Queries the number of bytes per data point in the waveform transferred using the
+        CURVe command.
+
+        Syntax: DATa:WIDth?
+        """
+        self.write('DATa:WIDth?')
+        return int(self.read())
+
+    def get_curve(self):
+        enc = self.get_data_encoding()
+        width = self.get_data_width()
+
+        self.write('CURVe?')
+        if 'ASCI' in enc:
+            """Just an ASCII string with terminating newline"""
+            crv = ""
+            while 1:
+                buf = self.read()
+                crv += buf
+                if '\n' in buf:
+                    break
+            return crv.strip()
+        else:
+            """Header and binary sequence with terminating newline"""
+            self.read(1)
+            x = int(self.read(1))
+            y = int(self.read(x))
+            buff = self.read((y * width) + 1)
+            dtype = ''
+
+            if 'SRP' in enc:
+                """Unsigned integer, least significant bit first"""
+                dtype = '<u{width}'.format(width=width)
+            elif 'SRI' in enc:
+                """Signed integer, least significant bit first"""
+                dtype = '<i{width}'.format(width=width)
+            elif 'RPB' in enc:
+                """Unsigned integer, most significant bit first"""
+                dtype = '>u{width}'.format(width=width)
+            elif 'RIB' in enc:
+                """Signed integer, most significant bit first"""
+                dtype = '>i{width}'.format(width=width)
+
+            crv = numpy.ndarray((y,), buffer=buff, dtype=dtype)
+            return crv
 
     def get_waveform(self):
         """Returns WFMPre? and CURVe? data for the waveform or waveforms as
@@ -138,29 +195,47 @@ class TektronixTDS(device.Instrument):
         self.write('WAVFrm?')
         return self.read().strip()
 
+def update(data):
+    line.set_ydata(data)
+    return line,
+
 if __name__ == '__main__':
     if len(sys.argv) != 2:
         print("usage: python -m devices.tektronix.tds <devicename>")
         sys.exit(1)
         
-    print("testing connection to '{name}'...\n".format(name=sys.argv[1]))
-
     try:
+        print("testing connection to '{name}'...\n".format(name=sys.argv[1]))
         tds = TektronixTDS(sys.argv[1])
         tds.clear()
-        tds.set_data_encoding('SRIbinary')
-
-        print("     identity: {idn}".format(idn=tds.get_identity()))
+        tds.set_data_encoding('RIBinary')
+        tds.set_data_stop('15000')
+        print("     identity: {idn}"  .format(idn=tds.get_identity()))
         print("  first point: {first}".format(first=tds.get_data_start()))
-        print("   last point: {last}".format(last=tds.get_data_stop()))
-        print("     encoding: {enc}".format(enc=tds.get_data_encoding()))
-        print("     waveform: {wfm}".format(wfm=tds.get_waveform()))
-
+        print("   last point: {last}" .format(last=tds.get_data_stop()))
+        print("     encoding: {enc}"  .format(enc=tds.get_data_encoding()))
+        print("        curve: {crv}"  .format(crv=tds.get_curve()))
         tds.clear()
+        print("\ndone!")
+
+        import matplotlib.pyplot as plt
+        import matplotlib.animation as ani
+        fig, ax = plt.subplots()
+        line, = ax.plot(tds.get_curve())
+        plt.ylabel('Voltage')
+        plt.xlabel('Time')
+
+        def update(data):
+            line.set_ydata(data)
+            return line,
+
+        def data_gen():
+            while True: yield tds.get_curve()
+
+        anim = ani.FuncAnimation(fig, update, data_gen, interval=10)
+        plt.show()
     except GpibError as msg:
-        tds.handle_error(msg)
-    
-    print("\ndone!")
+        device.handle_error(msg)
 
 
 # vim: autoindent tabstop=4 shiftwidth=4 expandtab softtabstop=4 filetype=python
