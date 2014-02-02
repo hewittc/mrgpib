@@ -35,13 +35,18 @@ class TektronixTDS(device.Instrument):
         self.supported_devices = ['410', '420', '460', '520A', '524A', '540A', '544A', 
                                   '620A', '640A', '644A', '684A', '744A', '784A']
 
-        self.sources = ['CH1', 'CH2', 'CH3', 'CH4', 
-                        'MATH1', 'MATH2', 'MATH3', 
-                        'REF1', 'REF2', 'REF3', 'REF4']
+        self.sources =           ['CH1', 'CH2', 'CH3', 'CH4', 
+                                  'MATH1', 'MATH2', 'MATH3', 
+                                  'REF1', 'REF2', 'REF3', 'REF4']
 
-        self.encodings = ['ASCIi', 
-                          'RIBinary', 'RPBinary', 
-                          'SRIbinary', 'SRPbinary']
+        self.encodings =         ['ASCIi', 
+                                  'RIBinary', 'RPBinary', 
+                                  'SRIbinary', 'SRPbinary']
+
+        self.hardcopy_formats =  ['BMP', 'BMPCOLOR', 'DESKJet', 'DPU411', 'DPU412', 
+                                  'EPSCOLImg', 'EPSColor', 'EPSImage', 'EPSMono', 'EPSOn', 
+                                  'HPGl', 'INTERLeaf', 'LASERJet', 'PCX', 'PCXCOLOR', 
+                                  'RLE', 'THInkjet', 'TIFf']
 
     def get_identity(self):
         """Returns the digitizing oscilloscope identification code.
@@ -49,6 +54,79 @@ class TektronixTDS(device.Instrument):
         Syntax: *IDN?
         """
         self.write('*IDN?')
+        return self.read().strip()
+
+    def set_wait(self):
+        """(Wait) Prevents the digitizing oscilloscope from executing further commands or
+        queries until all pending operations finish. This command allows you to
+        synchronize the operation of the digitizing oscilloscope with your application
+        program.
+
+        Syntax: *WAI
+        """
+        self.write('*WAI')
+
+    def get_busy(self):
+        """Returns the status of the digitizing oscilloscope. This command allows you to
+        synchronize the operation of the digitizing oscilloscope with your application
+        program.
+
+        Syntax: BUSY?
+        """
+        self.write('BUSY?')
+        bsy = self.read()
+        return '1' in bsy
+
+    def get_identity(self):
+        """Returns the digitizing oscilloscope identification code.
+        
+        Syntax: *IDN?
+        """
+        self.write('*IDN?')
+        return self.read().strip()
+
+    def set_hardcopy_format(self, fmt):
+        """Selects the output data format for hardcopies. This is equivalent to setting
+        Format in the Hardcopy menu.
+        
+        Syntax: HARDCopy:FORMat { BMP | BMPCOLOR (TDS 5XXA, 6XXA, & 7XXA series
+        only) | DESKJet | DPU411 | DPU412 | EPSCOLImg (TDS 5XXA, 6XXA,
+        744 series only) | EPSColor | EPSImage | EPSMono | EPSOn | HPGl |
+        INTERLeaf | LASERJet | PCX | PCXCOLOR (TDS 5XXA, 6XXA, & 7XXA
+        series only) | RLE (TDS 5XXA, 6XXA, & 7XXA series only) | THInkjet |
+        TIFf }
+        """
+        if fmt in self.hardcopy_formats:
+            self.write('HARDCopy:FORMat {fmt}'.format(fmt=fmt))
+
+    def get_hardcopy_format(self):
+        """Queries the output data format for hardcopies.
+        
+        Syntax: HARDCopy:FORMat?
+        """
+        self.write('HARDCopy:FORMat?')
+        return self.read().strip()
+
+    def set_hardcopy(self, cmd):
+        """Sends a copy of the screen display followed by an EOI to the port specified by
+        HARDCopy:PORT. The format and layout of the output is specified with the
+        HARDCopy:FORMat and HARDCopy:LAYout commands. This command is
+        equivalent to pressing the front-panel HARDCOPY button.
+
+        Syntax: HARDCopy { ABOrt | CLEARSpool | STARt }
+        """
+        if cmd in ['ABOrt', 'CLEARSpool', 'STARt']:
+            self.write('HARDCopy {cmd}'.format(cmd=cmd))
+            if cmd is 'STARt':
+                while self.get_busy():
+                    pass
+
+    def get_hardcopy(self):
+        """Query returns format, layout, and port information.
+
+        Syntax: HARDCopy?
+        """
+        self.write('HARDCopy?')
         return self.read().strip()
 
     def set_data_source(self, wfm):
@@ -195,10 +273,6 @@ class TektronixTDS(device.Instrument):
         self.write('WAVFrm?')
         return self.read().strip()
 
-def update(data):
-    line.set_ydata(data)
-    return line,
-
 if __name__ == '__main__':
     if len(sys.argv) != 2:
         print("usage: python -m devices.tektronix.tds <devicename>")
@@ -210,11 +284,14 @@ if __name__ == '__main__':
         tds.clear()
         tds.set_data_encoding('RIBinary')
         tds.set_data_stop('15000')
+        tds.set_hardcopy_format('BMPCOLOR')
         print("     identity: {idn}"  .format(idn=tds.get_identity()))
         print("  first point: {first}".format(first=tds.get_data_start()))
         print("   last point: {last}" .format(last=tds.get_data_stop()))
         print("     encoding: {enc}"  .format(enc=tds.get_data_encoding()))
+        print("       format: {fmt}"  .format(fmt=tds.get_hardcopy_format()))
         print("        curve: {crv}"  .format(crv=tds.get_curve()))
+        #tds.set_hardcopy('STARt')
         tds.clear()
         print("\ndone!")
 
